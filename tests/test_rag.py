@@ -10,7 +10,8 @@ import rag_server as rag
 class RagTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
-        self.root=Path(self.temp.name)
+        # Windows CI may supply a RUNNER~1 short path; match production's canonical paths.
+        self.root=Path(self.temp.name).resolve()
         self.docs=self.root/'documents'; self.docs.mkdir()
         self.patches=[patch.object(rag,'DB_PATH',self.root/'kb.db'),patch.object(rag,'DOCUMENTS_DIR',self.docs)]
         for p in self.patches:p.start()
@@ -46,7 +47,9 @@ class RagTests(unittest.TestCase):
         doc=self.docs/'hello.txt'; doc.write_text('模型资料存放在用户配置的 documents 文件夹。',encoding='utf-8')
         def vectors(texts):return [np.array([1.,0.],dtype=np.float32) for _ in texts]
         with patch.object(rag,'embed_texts',side_effect=vectors):
-            result=self.client.post('/ingest',json={'path':str(doc)}).json()
+            response=self.client.post('/ingest',json={'path':str(doc)})
+            self.assertEqual(response.status_code,200,response.text)
+            result=response.json()
             self.assertEqual(result['indexed_files'],1)
             self.assertEqual(self.client.post('/ingest',json={'path':str(doc)}).json()['indexed_files'],0)
             with patch.object(rag,'rerank',side_effect=lambda q,rows,k:[{'row':rows[0],'score':.9}]),patch.object(rag,'generate_answer',return_value='资料在 documents。[S1]'):
@@ -57,10 +60,13 @@ class RagTests(unittest.TestCase):
     def test_failed_reimport_preserves_existing(self):
         doc=self.docs/'hello.txt';doc.write_text('Original document',encoding='utf-8')
         with patch.object(rag,'embed_texts',return_value=[np.array([1.,0.],dtype=np.float32)]):
-            self.client.post('/ingest',json={'path':str(doc)})
+            response=self.client.post('/ingest',json={'path':str(doc)})
+            self.assertEqual(response.status_code,200,response.text)
         doc.write_text('Updated document',encoding='utf-8')
         with patch.object(rag,'embed_texts',side_effect=RuntimeError('offline')):
-            result=self.client.post('/ingest',json={'path':str(doc)}).json()
+            response=self.client.post('/ingest',json={'path':str(doc)})
+            self.assertEqual(response.status_code,200,response.text)
+            result=response.json()
             self.assertEqual(len(result['skipped']),1)
         with rag.connect_db() as db:
             self.assertEqual(db.execute('SELECT content FROM chunks').fetchone()[0],'Original document')
