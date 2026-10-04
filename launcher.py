@@ -1,103 +1,188 @@
-"""Chinese desktop launcher. Stop controls remain usable during startup."""
+"""Portable desktop workbench. Service ownership remains in service_manager."""
+import concurrent.futures
 import os
+from pathlib import Path
 import queue
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox
 import webbrowser
+
+import desktop_ui as ui
 from service_manager import Manager, ROOT, load_services
 
+
 class Launcher(tk.Tk):
-    def __init__(self):
+    def __init__(self, root=ROOT, services=None, manager=None, auto_refresh=True, demo=False):
         super().__init__()
-        self.title('知页 · 本地知识工作台')
-        self.geometry('1000x700')
-        self.minsize(850,600)
-        self.configure(bg='#111820')
-        self.manager=Manager()
-        self.services=load_services()
-        self.events=queue.Queue()
-        self.cancel=threading.Event()
-        self.starting=False
-        self.stopping=False
-        self.checking=False
-        self.rows={}
-        style=ttk.Style(self); style.theme_use('clam')
-        style.configure('TButton',font=('Microsoft YaHei UI',10),padding=8)
-        tk.Label(self,text='知页 / LOCAL KNOWLEDGE',bg='#111820',fg='#70dfb0',font=('Microsoft YaHei UI',22,'bold')).pack(anchor='w',padx=24,pady=(24,8))
-        tk.Label(self,text='资料问答 · 模型管理 · 可选 Agent 记忆',bg='#111820',fg='#9baebf',font=('Microsoft YaHei UI',11)).pack(anchor='w',padx=24)
-        bar=tk.Frame(self,bg='#111820'); bar.pack(fill='x',padx=24,pady=18)
-        self.start_button=ttk.Button(bar,text='启动已启用服务',command=lambda:self.start(self.services)); self.start_button.pack(side='left')
-        ttk.Button(bar,text='游戏模式 · 释放模型',command=lambda:self.stop([s for s in self.services if s['group']=='model'])).pack(side='left',padx=8)
-        ttk.Button(bar,text='关闭全部已管理服务',command=lambda:self.stop(self.services)).pack(side='left')
-        ttk.Button(bar,text='刷新状态',command=self.refresh).pack(side='right')
-        table=tk.Frame(self,bg='#1b2531',padx=14,pady=10); table.pack(fill='x',padx=24)
-        table.grid_columnconfigure(0,weight=1)
-        for index,service in enumerate(self.services):
-            tk.Label(table,text=service['label'],bg='#1b2531',fg='#eef4fa',font=('Microsoft YaHei UI',11)).grid(row=index,column=0,sticky='w',pady=10)
-            label=tk.Label(table,text='检查中',bg='#1b2531',fg='#9baebf'); label.grid(row=index,column=1,padx=12)
-            self.rows[service['id']]=label
-            ttk.Button(table,text='启动',command=lambda s=service:self.start([s])).grid(row=index,column=2,padx=4)
-            ttk.Button(table,text='关闭',command=lambda s=service:self.stop([s])).grid(row=index,column=3,padx=4)
-            if service.get('open_url'):
-                ttk.Button(table,text='打开网页',command=lambda s=service:webbrowser.open(s['open_url'])).grid(row=index,column=4,padx=4)
-        tk.Label(self,text='修改 services.json 后重开启动台。关闭窗口不停止后台服务。',bg='#111820',fg='#9baebf').pack(anchor='w',padx=24,pady=(14,8))
-        self.log=tk.Text(self,bg='#0b1118',fg='#c6d8e6',relief='flat',height=8,state='disabled',wrap='word')
-        self.log.pack(fill='both',expand=True,padx=24,pady=(0,20))
-        self.after(100,self.drain); self.after(200,self.refresh); self.after(5000,self.periodic)
+        self.demo = demo
+        self.root_path = Path(root)
+        self.manager = manager if manager is not None else (None if demo else Manager(self.root_path))
+        self.services = load_services(self.root_path) if services is None else services
+        self.model_services = [s for s in self.services if s.get('group') == 'model']
+        self.events = queue.Queue()
+        self.cancel = threading.Event()
+        self.starting = self.stopping = self.checking = False
+        self.start_buttons, self.stop_buttons = [], []
+        self.timers = set()
+        ui.build(self)
+        self.write('界面预览：使用示例配置，不探测、不启动、不关闭真实服务。' if demo
+                   else '工作台已打开。只管理本工作台登记的进程；外部服务不会被接管。')
+        self.schedule(100, self.drain)
+        if demo:
+            ui.update_status(self, {})
+        elif auto_refresh:
+            self.schedule(200, self.refresh)
+            self.schedule(5000, self.periodic)
+        self.protocol('WM_DELETE_WINDOW', self.close_window)
+
+    def schedule(self, delay, callback):
+        token = None
+        def run():
+            self.timers.discard(token)
+            callback()
+        token = self.after(delay, run)
+        self.timers.add(token)
+
+    def close_window(self):
+        # Deliberately leave launched services alone.
+        for token in list(self.timers):
+            self.after_cancel(token)
+        self.timers.clear()
+        # Release Tk-owned images on the UI thread, before destroying the interpreter.
+        self.brand_icon = None
+        self.destroy()
+
+    def write(self, value):
+        self.log.configure(state='normal')
+        self.log.insert('end', time.strftime('%H:%M:%S  ') + value.rstrip() + '\n')
+        self.log.see('end')
+        self.log.configure(state='disabled')
+        lines = value.strip().splitlines()
+        if lines: self.activity.configure(text=lines[-1][:75])
 
     def drain(self):
         while not self.events.empty():
-            event,value=self.events.get_nowait()
-            if event=='log':
-                self.log.configure(state='normal'); self.log.insert('end',value+'\n'); self.log.see('end'); self.log.configure(state='disabled')
-            elif event=='started': self.starting=False; self.start_button.state(['!disabled'])
-            elif event=='stopped': self.stopping=False
-            elif event=='health':
-                self.checking=False
-                for key,ready in value.items(): self.rows[key].configure(text='● 已就绪' if ready else '○ 未就绪',fg='#70dfb0' if ready else '#e8b678')
-        self.after(100,self.drain)
+            event, value = self.events.get_nowait()
+            if event == 'log':
+                self.write(value)
+            elif event == 'started':
+                self.starting = False
+                ui.update_busy(self)
+                self.refresh()
+            elif event == 'stopped':
+                self.stopping = False
+                ui.update_busy(self)
+                self.refresh()
+            elif event == 'health':
+                self.checking = False
+                ui.update_status(self, value)
+        self.schedule(100, self.drain)
 
     def refresh(self):
-        if self.checking:return
-        self.checking=True
-        def check(): self.events.put(('health',{s['id']:self.manager.healthy(s) for s in self.services}))
-        threading.Thread(target=check,daemon=True).start()
+        if self.demo:
+            ui.update_status(self, {})
+            return
+        if self.checking: return
+        self.checking = True
+        def check():
+            try:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+                    values = dict(zip((s['id'] for s in self.services),
+                                      pool.map(self.manager.healthy, self.services)))
+            except Exception as error:
+                self.events.put(('log', f'状态检查失败：{error}'))
+                values = {}
+            self.events.put(('health', values))
+        threading.Thread(target=check, daemon=True).start()
 
-    def periodic(self): self.refresh(); self.after(5000,self.periodic)
+    def periodic(self):
+        self.refresh()
+        self.schedule(5000, self.periodic)
 
-    def start(self,services):
-        if self.starting or self.stopping:return
-        self.starting=True; self.cancel.clear(); self.start_button.state(['disabled'])
+    def start(self, services):
+        if self.demo:
+            self.write('界面预览不会启动服务。')
+            return
+        if self.starting or self.stopping: return
+        self.starting = True
+        self.cancel.clear()
+        ui.update_busy(self)
         def run():
             try:
                 for service in services:
-                    if self.cancel.is_set():break
-                    try:self.events.put(('log',service['label']+'：'+self.manager.start(service,self.cancel)))
-                    except Exception as error:self.events.put(('log',service['label']+'：'+str(error)))
-            finally:self.events.put(('started',None))
-        threading.Thread(target=run,daemon=True).start()
+                    if self.cancel.is_set(): break
+                    try: result = self.manager.start(service, self.cancel)
+                    except Exception as error: result = str(error)
+                    self.events.put(('log', service['label'] + '：' + result))
+            finally: self.events.put(('started', None))
+        threading.Thread(target=run, daemon=True).start()
 
-    def stop(self,services):
-        if self.stopping:return
-        if not messagebox.askyesno('确认关闭','将取消待执行的启动操作，并停止选中的已登记服务。\n进行中的生成、索引或记忆写入可能中断。\n不会删除资料；不会停止启动台之外运行的进程。',default='no'):return
-        self.cancel.set(); self.stopping=True
+    def stop(self, services):
+        if self.demo:
+            self.write('界面预览不会关闭服务。')
+            return
+        if self.stopping: return
+        if not services:
+            self.write('没有匹配的已配置服务。')
+            return
+        if not messagebox.askyesno('确认关闭',
+                '将取消待执行的启动操作，并停止选中的已登记服务。\n'
+                '进行中的生成、索引或记忆写入可能中断。\n'
+                '不会删除资料；不会关闭工作台之外启动的进程。', default='no', parent=self):
+            return
+        self.cancel.set()
+        self.stopping = True
+        ui.update_busy(self)
         def run():
             try:
-                # Stop apps before their model dependencies.
-                for service in sorted(services,key=lambda s:s['group']=='model'):
-                    try:self.events.put(('log',service['label']+'：'+self.manager.stop(service)))
-                    except Exception as error:self.events.put(('log',service['label']+'：'+str(error)))
-            finally:self.events.put(('stopped',None))
-        threading.Thread(target=run,daemon=True).start()
+                for service in sorted(services, key=lambda s: s.get('group') == 'model'):
+                    try: result = self.manager.stop(service)
+                    except Exception as error: result = str(error)
+                    self.events.put(('log', service['label'] + '：' + result))
+            finally: self.events.put(('stopped', None))
+        threading.Thread(target=run, daemon=True).start()
 
-if __name__=='__main__':
+    def open_service(self, service):
+        if self.demo:
+            self.write('界面预览不会打开外部页面。')
+            return
+        # Config URLs have already been restricted to localhost by load_services.
+        if service.get('open_url'): webbrowser.open(service['open_url'])
+
+    def open_path(self, path):
+        if self.demo:
+            self.write('界面预览不会打开本地文件。')
+            return
+        path = Path(path)
+        if not path.exists():
+            messagebox.showinfo('文件或目录尚不存在', f'没有找到：\n{path}\n请先运行 setup.ps1 或创建对应目录。', parent=self)
+            return
+        if os.name == 'nt': os.startfile(path)
+        else: subprocess.Popen(['open' if sys.platform == 'darwin' else 'xdg-open', str(path)])
+
+    def copy_log(self):
+        self.clipboard_clear()
+        self.clipboard_append(self.log.get('1.0', 'end-1c'))
+        self.activity.configure(text='已复制；分享前请检查记录中的路径和错误信息。')
+
+
+if __name__ == '__main__':
+    preview = '--demo' in sys.argv or '--smoke-test' in sys.argv
+    # Demo uses only the distributable template, never a user's services.json.
+    if preview:
+        import json
+        services = json.loads((ROOT/'services.example.json').read_text(encoding='utf-8'))['services']
+    else:
+        services = None
     try:
-        app=Launcher()
-        if '--smoke-test' in sys.argv:app.after(1500,app.destroy)
+        app = Launcher(services=services, demo=preview)
+        if '--smoke-test' in sys.argv:
+            app.schedule(1500, app.close_window)
         app.mainloop()
     except Exception as error:
-        messagebox.showerror('启动台错误',str(error))
+        if sys.stderr is not None: print(f'工作台无法启动：{error}', file=sys.stderr)
         raise

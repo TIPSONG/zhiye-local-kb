@@ -1,10 +1,116 @@
 {
   "services": [
-    {"id":"knowledge","label":"知页知识库","group":"app","enabled":true,"command":["{python}","-m","uvicorn","rag_server:app","--host","127.0.0.1","--port","8090"],"health_url":"http://127.0.0.1:8090/ready","open_url":"http://127.0.0.1:8090/"},
-    {"id":"generator","label":"生成模型","group":"model","enabled":false,"command":["llama-server","-m","models/chat.gguf","--alias","local-chat","-ngl","99","-c","8192","--host","127.0.0.1","--port","8080"],"health_url":"http://127.0.0.1:8080/health"},
-    {"id":"embedding","label":"BGE-M3 嵌入","group":"model","enabled":false,"command":["llama-server","-m","models/bge-m3.gguf","--alias","bge-m3","--embedding","--pooling","cls","-ngl","99","-c","8192","--host","127.0.0.1","--port","8081"],"health_url":"http://127.0.0.1:8081/health"},
-    {"id":"reranker","label":"BGE 重排序","group":"model","enabled":false,"command":["llama-server","-m","models/bge-reranker.gguf","--alias","bge-reranker-v2-m3","--reranking","-ngl","99","-c","8192","--host","127.0.0.1","--port","8082"],"health_url":"http://127.0.0.1:8082/health"},
-    {"id":"omnidocs-rag","label":"OmniDocs-RAG（外部）","group":"integration","enabled":false,"command":[],"health_url":"http://127.0.0.1:8091/","open_url":"http://127.0.0.1:8091/"},
-    {"id":"hindsight","label":"Hindsight（外部）","group":"integration","enabled":false,"command":[],"health_url":"http://127.0.0.1:8888/health","open_url":"http://localhost:9999/"}
+    {
+      "id": "knowledge",
+      "label": "知页知识库",
+      "group": "app",
+      "enabled": true,
+      "command": [
+        "{python}",
+        "-m",
+        "uvicorn",
+        "rag_server:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8090"
+      ],
+      "health_url": "http://127.0.0.1:8090/ready",
+      "open_url": "http://127.0.0.1:8090/",
+      "description": "资料问答与引用溯源，使用你配置的本地模型。"
+    },
+    {
+      "id": "generator",
+      "label": "生成模型",
+      "group": "model",
+      "enabled": false,
+      "command": [
+        "llama-server",
+        "-m",
+        "models/chat.gguf",
+        "--alias",
+        "local-chat",
+        "-ngl",
+        "99",
+        "-c",
+        "8192",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8080"
+      ],
+      "health_url": "http://127.0.0.1:8080/health",
+      "description": "回答问题的生成模型；程序和权重由你配置。"
+    },
+    {
+      "id": "embedding",
+      "label": "BGE-M3 嵌入",
+      "group": "model",
+      "enabled": false,
+      "command": [
+        "llama-server",
+        "-m",
+        "models/bge-m3.gguf",
+        "--alias",
+        "bge-m3",
+        "--embedding",
+        "--pooling",
+        "cls",
+        "-ngl",
+        "99",
+        "-c",
+        "8192",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8081"
+      ],
+      "health_url": "http://127.0.0.1:8081/health",
+      "description": "为资料和问题生成向量，支持语义检索。"
+    },
+    {
+      "id": "reranker",
+      "label": "BGE 重排序",
+      "group": "model",
+      "enabled": false,
+      "command": [
+        "llama-server",
+        "-m",
+        "models/bge-reranker.gguf",
+        "--alias",
+        "bge-reranker-v2-m3",
+        "--reranking",
+        "-ngl",
+        "99",
+        "-c",
+        "8192",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8082"
+      ],
+      "health_url": "http://127.0.0.1:8082/health",
+      "description": "对候选片段再次排序，提高检索相关性。"
+    },
+    {
+      "id": "omnidocs-rag",
+      "label": "OmniDocs-RAG（外部）",
+      "group": "integration",
+      "enabled": false,
+      "command": [],
+      "health_url": "http://127.0.0.1:8091/",
+      "open_url": "http://127.0.0.1:8091/",
+      "description": "可选独立资料库；需自行安装并配置启动命令。"
+    },
+    {
+      "id": "hindsight",
+      "label": "Hindsight（外部）",
+      "group": "integration",
+      "enabled": false,
+      "command": [],
+      "health_url": "http://127.0.0.1:8888/health",
+      "open_url": "http://localhost:9999/",
+      "description": "可选 Agent 长期记忆；与静态资料库分别管理。"
+    }
   ]
 }
