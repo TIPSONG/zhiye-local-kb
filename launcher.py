@@ -28,6 +28,7 @@ class Launcher(tk.Tk):
         self.starting = self.stopping = self.checking = False
         self.start_buttons, self.stop_buttons = [], []
         self.timers = set()
+        self.tray = None
         ui.build(self)
         self.write('界面预览：使用示例配置，不探测、不启动、不关闭真实服务。' if demo
                    else '工作台已打开。只管理本工作台登记的进程；外部服务不会被接管。')
@@ -37,7 +38,33 @@ class Launcher(tk.Tk):
         elif auto_refresh:
             self.schedule(200, self.refresh)
             self.schedule(5000, self.periodic)
-        self.protocol('WM_DELETE_WINDOW', self.close_window)
+        self.protocol('WM_DELETE_WINDOW', self.hide_to_tray if os.name == 'nt' else self.close_window)
+
+    def hide_to_tray(self):
+        if os.name != 'nt':
+            self.iconify()
+            return
+        try:
+            if self.tray is None:
+                from tray import Tray
+                self.tray = Tray(lambda: self.schedule(0, self.restore_window),
+                                 lambda: self.schedule(0, self.request_exit))
+            self.write('已隐藏到托盘；单击图标恢复，后台服务继续运行。')
+            self.withdraw()
+        except Exception as error:
+            self.deiconify()
+            messagebox.showwarning('无法隐藏到托盘', str(error), parent=self)
+
+    def restore_window(self):
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+
+    def request_exit(self):
+        if self.starting or self.stopping:
+            messagebox.showinfo('操作进行中', '请等待启停操作完成；可先隐藏到托盘。', parent=self)
+            return
+        self.close_window()
 
     def schedule(self, delay, callback):
         token = None
@@ -49,6 +76,9 @@ class Launcher(tk.Tk):
 
     def close_window(self):
         # Deliberately leave launched services alone.
+        if self.tray is not None:
+            self.tray.close()
+            self.tray = None
         for token in list(self.timers):
             self.after_cancel(token)
         self.timers.clear()

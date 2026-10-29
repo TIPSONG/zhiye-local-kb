@@ -110,5 +110,37 @@ class DesktopTests(unittest.TestCase):
         self.app.protocol('WM_DELETE_WINDOW')
         self.manager.stop.assert_not_called()
 
+    @unittest.skipUnless(os.name == 'nt', 'Windows native tray')
+    def test_native_tray_hide_restore_reuse_and_cleanup(self):
+        self.app.hide_to_tray(); self.app.update()
+        self.assertEqual(self.app.state(), 'withdrawn')
+        tray = self.app.tray
+        self.assertTrue(tray.hwnd)
+        tray.dispatch(tray.hwnd, 0x8001, 1, 0x202)
+        self.app.update()
+        self.assertEqual(self.app.state(), 'normal')
+        self.app.hide_to_tray(); self.app.update()
+        self.assertIs(self.app.tray, tray)
+        tray.close(); self.app.tray = None
+        self.assertIsNone(tray.hwnd)
+        self.manager.start.assert_not_called()
+        self.manager.stop.assert_not_called()
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows native tray')
+    def test_tray_failure_keeps_window_visible(self):
+        with patch('tray.Tray', side_effect=RuntimeError('unavailable')), patch('launcher.messagebox.showwarning'):
+            self.app.hide_to_tray(); self.app.update()
+        self.assertEqual(self.app.state(), 'normal')
+
+    def test_exit_is_blocked_during_start_or_stop(self):
+        with patch.object(self.app, 'close_window') as close, patch('launcher.messagebox.showinfo'):
+            self.app.starting = True
+            self.app.request_exit(); close.assert_not_called()
+            self.app.starting = False
+            self.app.stopping = True
+            self.app.request_exit(); close.assert_not_called()
+            self.app.stopping = False
+            self.app.request_exit(); close.assert_called_once()
+
 
 if __name__=='__main__':unittest.main()
