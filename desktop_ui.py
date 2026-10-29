@@ -133,7 +133,7 @@ def build(app):
         b.pack(fill='x', padx=14, pady=3); app.nav[key] = b
     foot = tk.Frame(sidebar, bg=SIDEBAR); foot.pack(side='bottom', fill='x', padx=26, pady=28)
     text(foot, '●  本机工作空间', 10, '#BDDBA8', True).pack(anchor='w')
-    text(foot, '仅管理自己启动的进程\n关闭窗口不停止后台服务', 9, '#82998C', justify='left').pack(anchor='w', pady=(10, 0))
+    text(foot, '仅管理自己启动的进程\n关闭窗口隐藏到托盘' if os.name == 'nt' else '仅管理自己启动的进程\n关闭窗口不停止后台服务', 9, '#82998C', justify='left').pack(anchor='w', pady=(10, 0))
     main = tk.Frame(app, bg=BG); main.pack(side='left', fill='both', expand=True)
     header = tk.Frame(main, bg=BG); header.pack(fill='x', padx=30, pady=(24, 18))
     left = tk.Frame(header, bg=BG); left.pack(side='left')
@@ -141,6 +141,7 @@ def build(app):
     app.page_title = text(left, '工作台', 24, INK, True); app.page_title.pack(anchor='w', pady=(4, 0))
     action(app, header, '启动已启用服务  ↗', lambda: app.start(app.services), 'Primary', 'start').pack(side='right', padx=(10, 0))
     action(app, header, '刷新状态', app.refresh).pack(side='right')
+    action(app, header, '隐藏到托盘' if os.name == 'nt' else '最小化', app.hide_to_tray).pack(side='right', padx=(0, 10))
     container = tk.Frame(main, bg=BG); container.pack(fill='both', expand=True, padx=30)
     for key in app.nav: app.pages[key] = tk.Frame(container, bg=BG)
     overview(app, app.pages['overview'])
