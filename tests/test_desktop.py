@@ -6,7 +6,7 @@ import tempfile
 import threading
 import time
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 from desktop_ui import badge_state
 
@@ -19,6 +19,31 @@ class BadgeTests(unittest.TestCase):
 
     def test_enabled_offline(self):
         self.assertIn('未就绪',badge_state({'enabled':True,'command':['python']},False)[0])
+
+
+@unittest.skipUnless(os.name == 'nt', 'Windows native tray')
+class TrayMenuTests(unittest.TestCase):
+    def test_repeated_menus_post_null_after_selection_and_cancel(self):
+        from tray import Tray
+        tray = Tray.__new__(Tray)
+        tray.restart = 0xC001
+        tray.user = Mock()
+        tray.user.CreatePopupMenu.return_value = 456
+        tray.restore, tray.exit_app = Mock(), Mock()
+        for choice in (0, 1, 2, 0):
+            with self.subTest(choice=choice):
+                tray.user.reset_mock()
+                tray.user.TrackPopupMenu.return_value = choice
+                tray.dispatch(123, 0x8001, 1, 0x205)
+                tray.user.assert_has_calls([
+                    call.SetForegroundWindow(123),
+                    call.TrackPopupMenu(456,0x100 | 2,0,0,0,123,None),
+                    call.PostMessageW(123,0,0,0),
+                    call.DestroyMenu(456),
+                ])
+                tray.user.PostMessageW.assert_called_once_with(123,0,0,0)
+        tray.restore.assert_called_once_with()
+        tray.exit_app.assert_called_once_with()
 
 
 @unittest.skipUnless(os.getenv('ZHIYE_GUI_TESTS')=='1','Set ZHIYE_GUI_TESTS=1 with a display')

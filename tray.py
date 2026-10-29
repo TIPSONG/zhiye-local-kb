@@ -39,6 +39,7 @@ class Tray:
             'AppendMenuW': ([w.HMENU,w.UINT,c.c_size_t,w.LPCWSTR],w.BOOL),
             'GetCursorPos': ([c.POINTER(w.POINT)],w.BOOL),
             'SetForegroundWindow': ([w.HWND],w.BOOL),
+            'PostMessageW': ([w.HWND,w.UINT,w.WPARAM,w.LPARAM],w.BOOL),
             'TrackPopupMenu': ([w.HMENU,w.UINT,c.c_int,c.c_int,c.c_int,w.HWND,c.c_void_p],w.UINT),
             'DestroyMenu': ([w.HMENU],w.BOOL),
         }
@@ -82,6 +83,9 @@ class Tray:
                     self.user.GetCursorPos(c.byref(point))
                     self.user.SetForegroundWindow(hwnd)
                     choice = self.user.TrackPopupMenu(menu,0x100 | 2,point.x,point.y,0,hwnd,None)
+                    # Required for notification menus to reopen reliably, even
+                    # after cancellation. Queue this before any exit callback.
+                    self.user.PostMessageW(hwnd,0,0,0)  # WM_NULL
                     if choice == 1: self.restore()
                     elif choice == 2: self.exit_app()
                 finally:
