@@ -142,5 +142,16 @@ class DesktopTests(unittest.TestCase):
             self.app.stopping = False
             self.app.request_exit(); close.assert_called_once()
 
+    @unittest.skipUnless(os.name == 'nt', 'Windows native tray')
+    def test_explorer_recovery_failure_cannot_hide_without_icon(self):
+        self.app.hide_to_tray(); self.app.update()
+        tray = self.app.tray
+        with patch.object(tray.shell, 'Shell_NotifyIconW', return_value=False), patch('launcher.messagebox.showwarning'):
+            tray.dispatch(tray.hwnd, tray.restart, 0, 0)
+            self.app.update()
+            self.assertEqual(self.app.state(), 'normal')
+            self.app.hide_to_tray(); self.app.update()
+            self.assertEqual(self.app.state(), 'normal')
+
 
 if __name__=='__main__':unittest.main()

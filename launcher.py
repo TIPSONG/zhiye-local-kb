@@ -49,6 +49,7 @@ class Launcher(tk.Tk):
                 from tray import Tray
                 self.tray = Tray(lambda: self.schedule(0, self.restore_window),
                                  lambda: self.schedule(0, self.request_exit))
+            self.tray.ensure_visible()
             self.write('已隐藏到托盘；单击图标恢复，后台服务继续运行。')
             self.withdraw()
         except Exception as error:

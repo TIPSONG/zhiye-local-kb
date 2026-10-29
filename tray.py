@@ -66,7 +66,9 @@ class Tray:
 
     def dispatch(self, hwnd, msg, wp, lp):
         if msg == self.restart and hasattr(self, 'data'):
-            if not self.shell.Shell_NotifyIconW(0,c.byref(self.data)):
+            try:
+                self.ensure_visible()
+            except RuntimeError:
                 self.restore()
             return 0
         if msg == 0x8001:
@@ -86,6 +88,13 @@ class Tray:
                     self.user.DestroyMenu(menu)
             return 0
         return self.user.DefWindowProcW(hwnd,msg,wp,lp)
+
+    def ensure_visible(self):
+        # Explorer can lose the icon while this Python object remains alive.
+        # Never withdraw the workbench unless the shell accepts the icon.
+        if not self.shell.Shell_NotifyIconW(1,c.byref(self.data)):
+            if not self.shell.Shell_NotifyIconW(0,c.byref(self.data)):
+                raise RuntimeError('Windows 无法恢复托盘图标；工作台保持可见')
 
     def close(self):
         if hasattr(self,'data'): self.shell.Shell_NotifyIconW(2,c.byref(self.data))
