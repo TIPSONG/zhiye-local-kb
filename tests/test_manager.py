@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import sys
 import tempfile
@@ -32,6 +33,25 @@ class ManagerTests(unittest.TestCase):
         self.assertIsNone(self.manager.owned(tampered))
         self.manager.stop(self.service)
         self.assertIsNone(self.manager.owned(record))
+    def test_two_managers_serialize_start_for_same_root(self):
+        # Manual and automatic entry points must share the registry lock.
+        other = Manager(self.root)
+        barrier = threading.Barrier(2)
+        def start(manager):
+            barrier.wait(timeout=5)
+            return manager.start(self.service)
+        with patch.object(Manager, 'healthy', return_value=False):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                tasks = [pool.submit(start, manager) for manager in (self.manager, other)]
+                results = [task.result(timeout=10) for task in tasks]
+        try:
+            self.assertEqual(sum('已发出启动命令' in value for value in results), 1)
+            self.assertEqual(sum('进程已运行' in value for value in results), 1)
+            self.assertEqual(len(self.manager.records()), 1)
+        finally:
+            # Reap the Popen handle regardless of which manager won the race.
+            owner = self.manager if self.service['id'] in self.manager.handles else other
+            owner.stop(self.service)
     def test_reject_invalid_service_name(self):
         (self.root/'services.json').write_text(json.dumps({'services':[{'id':'../bad','command':[]}]}))
         with self.assertRaises(ValueError):load_services(self.root)
